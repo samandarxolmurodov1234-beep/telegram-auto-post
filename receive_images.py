@@ -115,4 +115,159 @@ def gemini_color_correct(image_path):
         data = resp.json()
 
         if resp.status_code != 200:
-            print(f"Ogohlantirish: Gemini xatolik qaytardi ({resp.status_code}):
+            print(f"Ogohlantirish: Gemini xatolik qaytardi ({resp.status_code}): {data}")
+            return
+
+        parts = data["candidates"][0]["content"]["parts"]
+        for part in parts:
+            inline = part.get("inline_data") or part.get("inlineData")
+            if inline:
+                new_bytes = base64.b64decode(inline["data"])
+                with open(image_path, "wb") as f:
+                    f.write(new_bytes)
+                print("Gemini orqali tuzatildi.")
+                return
+
+        print("Ogohlantirish: Gemini javobida rasm topilmadi, asl rasm qoladi.")
+
+    except Exception as e:
+        print(f"Ogohlantirish: Gemini bilan ishlashda xatolik: {e}")
+
+
+def send_message(chat_id, text):
+    requests.post(f"{API_URL}/sendMessage", data={"chat_id": chat_id, "text": text}, timeout=30)
+
+
+def send_photo_for_review(chat_id, image_path, caption):
+    """Rasmni yuboradi va Telegram qaytargan message_id ni beradi."""
+    url = f"{API_URL}/sendPhoto"
+    with open(image_path, "rb") as photo:
+        resp = requests.post(
+            url,
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": photo},
+            timeout=60,
+        )
+    data = resp.json()
+    if data.get("ok"):
+        return data["result"]["message_id"]
+    return None
+
+
+def handle_new_photo(message, pending_state):
+    photos = message.get("photo")
+    if not photos:
+        return
+
+    chat_id = message["chat"]["id"]
+    best_photo = photos[-1]
+    file_id = best_photo["file_id"]
+
+    ensure_dir(PENDING_DIR)
+    number = get_next_number(PENDING_DIR)
+    filename = f"{number:03d}.jpg"
+    save_path = os.path.join(PENDING_DIR, filename)
+
+    try:
+        download_file(file_id, save_path)
+        gemini_color_correct(save_path)
+
+        review_msg_id = send_photo_for_review(
+            chat_id,
+            save_path,
+            "Rangi shunday tuzatildi. Mos bo'lsa shu xabarga javob qilib "
+            "\"bo'ladi\" deb yozing, mos bo'lmasa \"yo'q\" deb yozing."
+        )
+
+        if review_msg_id:
+            pending_state[str(review_msg_id)] = {"file": save_path, "chat_id": chat_id}
+        else:
+            send_message(chat_id, "❌ Rasmni qaytarib yuborishda xatolik yuz berdi.")
+
+    except Exception as e:
+        print(f"XATOLIK rasmni qayta ishlashda: {e}")
+        send_message(chat_id, "❌ Rasmni qayta ishlashda xatolik yuz berdi.")
+
+
+def handle_text_reply(message, pending_state):
+    text = (message.get("text") or "").strip().lower()
+    reply_to = message.get("reply_to_message")
+    if not reply_to:
+        return
+
+    reply_id = str(reply_to.get("message_id"))
+    if reply_id not in pending_state:
+        return
+
+    entry = pending_state[reply_id]
+    chat_id = entry["chat_id"]
+    pending_path = entry["file"]
+
+    if text in CONFIRM_WORDS:
+        if os.path.exists(pending_path):
+            ensure_dir(IMAGES_DIR)
+            number = get_next_number(IMAGES_DIR)
+            final_filename = f"{number:03d}.jpg"
+            final_path = os.path.join(IMAGES_DIR, final_filename)
+            os.rename(pending_path, final_path)
+            send_message(chat_id, f"✅ Rasm navbatga qo'shildi ({final_filename})")
+        else:
+            send_message(chat_id, "❌ Rasm topilmadi, qaytadan yuboring.")
+        del pending_state[reply_id]
+
+    elif text in REJECT_WORDS:
+        if os.path.exists(pending_path):
+            os.remove(pending_path)
+        send_message(chat_id, "🗑 Rasm bekor qilindi, navbatga qo'shilmadi.")
+        del pending_state[reply_id]
+
+    else:
+        send_message(chat_id, "Iltimos \"bo'ladi\" yoki \"yo'q\" deb javob bering.")
+
+
+def main():
+    if not BOT_TOKEN or not ALLOWED_USER_ID:
+        print("XATOLIK: BOT_TOKEN yoki ALLOWED_USER_ID topilmadi.")
+        sys.exit(1)
+
+    updates_state = load_json(UPDATES_STATE_FILE, {"last_update_id": 0})
+    pending_state = load_json(PENDING_STATE_FILE, {})
+
+    offset = updates_state.get("last_update_id", 0) + 1
+    resp = requests.get(f"{API_URL}/getUpdates", params={"offset": offset, "timeout": 5}, timeout=30)
+    data = resp.json()
+
+    if not data.get("ok"):
+        print("XATOLIK: getUpdates ishlamadi:", data)
+        sys.exit(1)
+
+    updates = data["result"]
+    if not updates:
+        print("Yangi xabar yo'q.")
+        return
+
+    max_update_id = updates_state.get("last_update_id", 0)
+
+    for update in updates:
+        max_update_id = max(max_update_id, update["update_id"])
+        message = update.get("message")
+        if not message:
+            continue
+
+        sender_id = str(message.get("from", {}).get("id", ""))
+        if sender_id != str(ALLOWED_USER_ID):
+            print(f"E'tibor berilmadi: ruxsatsiz foydalanuvchi ({sender_id}).")
+            continue
+
+        if message.get("photo"):
+            handle_new_photo(message, pending_state)
+        elif message.get("text") and message.get("reply_to_message"):
+            handle_text_reply(message, pending_state)
+
+    updates_state["last_update_id"] = max_update_id
+    save_json(UPDATES_STATE_FILE, updates_state)
+    save_json(PENDING_STATE_FILE, pending_state)
+
+
+if __name__ == "__main__":
+    main()
