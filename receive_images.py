@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 """
-Foydalanuvchi botga yuborgan rasmlarni tekshirib, images/ papkasiga
-ketma-ket raqamlab saqlaydigan skript.
+Foydalanuvchi botga yuborgan rasmlarni tekshirib, avtomatik rang
+tuzatish qilib, images/ papkasiga ketma-ket raqamlab saqlaydigan skript.
 
 Ishlash tartibi:
 1. Telegram'dan getUpdates orqali yangi xabarlarni oladi
-   (faqat oxirgi safar to'xtagan joydan keyingi yangilarini - offset orqali)
 2. Faqat ALLOWED_USER_ID dan kelgan va rasm (photo) bo'lgan xabarlarni qabul qiladi
-3. Har bir rasmni eng yuqori sifatda yuklab oladi va images/ papkasiga
-   navbatdagi raqam bilan saqlaydi (masalan mavjudi 07 bo'lsa, keyingisi 08.jpg)
-4. Foydalanuvchiga "qabul qilindi" deb tasdiq xabar yuboradi
-5. updates_state.json faylida oxirgi ko'rilgan update_id'ni saqlab qo'yadi
-   (shu bilan bir xil rasm ikki marta qabul qilinmaydi)
+3. Har bir rasmni yuklab, avtomatik rang/kontrast tuzatishdan o'tkazadi
+   (mahsulotning haqiqiy rangini o'zgartirmaydi, faqat yorug'lik/oq balansni tuzatadi)
+4. images/ papkasiga navbatdagi raqam bilan saqlaydi
+5. Foydalanuvchiga darhol "qabul qilindi" deb tasdiq xabar yuboradi
 """
 
 import os
 import sys
 import json
 import requests
+from PIL import Image, ImageOps
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")  # faqat shu ID'dan rasm qabul qilinadi
+ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
 
 IMAGES_DIR = "images"
 UPDATES_STATE_FILE = "updates_state.json"
@@ -64,6 +63,16 @@ def download_file(file_id, save_path):
         f.write(resp.content)
 
 
+def color_correct(image_path):
+    """Yorug'lik va kontrastni avtomatik tuzatadi (mahsulot rangini o'zgartirmaydi)."""
+    try:
+        img = Image.open(image_path).convert("RGB")
+        img = ImageOps.autocontrast(img, cutoff=1)
+        img.save(image_path, "JPEG", quality=95)
+    except Exception as e:
+        print(f"Ogohlantirish: rang tuzatishda muammo bo'ldi, asl rasm saqlanadi: {e}")
+
+
 def send_message(chat_id, text):
     requests.post(f"{API_URL}/sendMessage", data={"chat_id": chat_id, "text": text}, timeout=30)
 
@@ -104,9 +113,8 @@ def main():
 
         photos = message.get("photo")
         if not photos:
-            continue  # rasm bo'lmagan xabarlarni e'tiborsiz qoldiramiz
+            continue
 
-        # Telegram bir nechta o'lchamda yuboradi, oxirgisi (eng kattasi) tanlanadi
         best_photo = photos[-1]
         file_id = best_photo["file_id"]
 
@@ -116,8 +124,9 @@ def main():
 
         try:
             download_file(file_id, save_path)
+            color_correct(save_path)
             saved_count += 1
-            print(f"Saqlandi: {filename}")
+            print(f"Saqlandi va rangi tuzatildi: {filename}")
             send_message(message["chat"]["id"], f"✅ Rasm navbatga qo'shildi ({filename})")
         except Exception as e:
             print(f"XATOLIK rasmni saqlashda: {e}")
