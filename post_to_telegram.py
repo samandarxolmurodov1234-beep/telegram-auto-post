@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """
-Telegram kanalga har kuni avtomatik rasm+caption post qiluvchi skript.
+Telegram kanalga har kuni avtomatik rasm post qiluvchi skript (matnsiz).
 
 Ishlash tartibi:
 1. images/ papkasidagi barcha rasmlarni nomi bo'yicha alifbo tartibida saqlaydi
-   (shuning uchun rasmlarni 01.jpg, 02.jpg, 03.jpg ... kabi nomlang - qaysi
-   tartibda chiqishini shu nom belgilaydi)
 2. state.json faylida "qaysi rasm navbatda" degan ma'lumot saqlanadi
-3. Har ishga tushganda navbatdagi rasmni caption.txt dagi matn bilan kanalga yuboradi
-4. Ro'yxat oxiriga yetganda (masalan 30-rasmdan keyin) yana boshiga qaytadi
+3. Har ishga tushganda navbatdagi rasmni (matnsiz) kanalga yuboradi
+4. Ro'yxat oxiriga yetganda yana boshiga qaytadi
 """
 
 import os
@@ -17,13 +15,11 @@ import json
 import requests
 from datetime import datetime, timezone
 
-# ---- Sozlamalar (environment variables orqali keladi, GitHub Secrets'dan) ----
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")  # masalan: @mening_kanalim yoki -1001234567890
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
 IMAGES_DIR = "images"
 STATE_FILE = "state.json"
-CAPTION_FILE = "caption.txt"
 
 SUPPORTED_EXT = (".jpg", ".jpeg", ".png", ".webp")
 
@@ -47,23 +43,16 @@ def get_sorted_images():
         f for f in os.listdir(IMAGES_DIR)
         if f.lower().endswith(SUPPORTED_EXT)
     ]
-    files.sort()  # 01.jpg, 02.jpg, ... tartibida
+    files.sort()
     return files
 
 
-def load_caption():
-    if os.path.exists(CAPTION_FILE):
-        with open(CAPTION_FILE, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    return ""
-
-
-def send_photo(image_path, caption):
+def send_photo(image_path):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     with open(image_path, "rb") as photo:
         resp = requests.post(
             url,
-            data={"chat_id": CHANNEL_ID, "caption": caption, "parse_mode": "HTML"},
+            data={"chat_id": CHANNEL_ID},
             files={"photo": photo},
             timeout=60,
         )
@@ -83,16 +72,14 @@ def main():
     state = load_state()
     index = state.get("current_index", 0)
 
-    # Agar rasmlar soni o'zgargan bo'lsa (ko'p/kam qilingan bo'lsa), indexni to'g'rilaymiz
     if index >= len(images):
         index = 0
 
-    caption = load_caption()
     image_name = images[index]
     image_path = os.path.join(IMAGES_DIR, image_name)
 
     print(f"Yuborilyapti: {image_name} (index {index + 1}/{len(images)})")
-    resp = send_photo(image_path, caption)
+    resp = send_photo(image_path)
 
     if resp.status_code == 200 and resp.json().get("ok"):
         print("Muvaffaqiyatli yuborildi!")
