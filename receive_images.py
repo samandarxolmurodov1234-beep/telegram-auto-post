@@ -34,18 +34,15 @@ GEMINI_MODEL = "gemini-2.5-flash-image"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 GEMINI_PROMPT = (
-    "Enhance this product photograph of a gold jewelry piece for e-commerce use. "
-    "Clean up the white textured jewelry display stand so it looks pristine, "
-    "spotless, and completely free of any stains, marks, pen lines, or metal "
-    "clips. Make the background and display surface perfectly smooth and clean. "
-    "Apply soft, professional studio-quality lighting with sharp focus on the "
-    "jewelry item's detailed textures. "
-    "IMPORTANT: Do not change the actual color, shape, size, design, or any "
-    "detail of the jewelry item itself - it must remain exactly as in the "
-    "original photo. Only clean the display stand/background and improve the "
-    "lighting quality."
+    "Mutlaqo toza va top-toza oq teksturali zargarlik stendida joylashgan "
+    "oltin uzukning professional mahsulot fotosurati. Stend yuzasida hech "
+    "qanday dog'lar, ruchka izlari yoki metall qisqichlar yo'q. Barcha "
+    "keraksiz dog'lar olib tashlangan, orqa fon va stend mutlaqo toza va "
+    "professional ko'rinishda. "
+    "MUHIM: uzukning o'zi - uning rangi, shakli, o'lchami, dizayni va "
+    "har qanday detali - asl rasmdagidek qoladi, hech qanday o'zgarish "
+    "kiritilmaydi. Faqat stend/fon tozalanadi va yorug'lik yaxshilanadi."
 )
-
 CONFIRM_WORDS = {"bo'ladi", "boladi", "ha", "ok", "okay", "tasdiqlayman"}
 REJECT_WORDS = {"yo'q", "yoq", "yo'q.", "bekor"}
 
