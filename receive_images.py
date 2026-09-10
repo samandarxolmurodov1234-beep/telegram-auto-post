@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
 Foydalanuvchi botga yuborgan rasmlarni tekshirib, Gemini AI orqali rang
-tuzatadi, sizga natijani qaytarib ko'rsatadi va faqat siz "bo'ladi" deb
+tuzatadi (agar limit tugagan bo'lsa - bepul algoritmik usulga avtomatik
+o'tadi), sizga natijani qaytarib ko'rsatadi va faqat siz "bo'ladi" deb
 javob berganingizda asosiy navbatga (images/) qo'shadi.
 
 Ishlash tartibi:
-1. Rasm keladi -> Gemini orqali tuzatiladi -> pending/ papkasiga saqlanadi
-   -> sizga tuzatilgan rasm qaytarib yuboriladi, "bo'ladi" deb javob
+1. Rasm keladi -> avval Gemini orqali tuzatishga harakat qilinadi;
+   agar Gemini ishlamasa (limit, xatolik) -> bepul algoritmik usulga
+   avtomatik o'tiladi -> pending/ papkasiga saqlanadi
+2. Sizga tuzatilgan rasm qaytarib yuboriladi, "bo'ladi" deb javob
    berishingiz so'raladi
-2. Siz o'sha xabarga javob qilib "bo'ladi" (yoki "ha", "ok") desangiz ->
+3. Siz o'sha xabarga javob qilib "bo'ladi" (yoki "ha", "ok") desangiz ->
    rasm images/ papkasiga ko'chiriladi, navbatga qo'shiladi
-3. Siz "yo'q" desangiz -> rasm bekor qilinadi, navbatga qo'shilmaydi
+4. Siz "yo'q" desangiz -> rasm bekor qilinadi, navbatga qo'shilmaydi
 """
 
 import os
@@ -18,6 +21,7 @@ import sys
 import json
 import base64
 import requests
+from PIL import Image, ImageOps
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
@@ -43,6 +47,7 @@ GEMINI_PROMPT = (
     "har qanday detali - asl rasmdagidek qoladi, hech qanday o'zgarish "
     "kiritilmaydi. Faqat stend/fon tozalanadi va yorug'lik yaxshilanadi."
 )
+
 CONFIRM_WORDS = {"bo'ladi", "boladi", "ha", "ok", "okay", "tasdiqlayman"}
 REJECT_WORDS = {"yo'q", "yoq", "yo'q.", "bekor"}
 
@@ -87,10 +92,25 @@ def download_file(file_id, save_path):
         f.write(resp.content)
 
 
+def algorithmic_color_correct(image_path):
+    """Bepul, algoritmik rang/kontrast tuzatish (zaxira usul)."""
+    try:
+        img = Image.open(image_path).convert("RGB")
+        corrected = ImageOps.autocontrast(img, cutoff=1)
+        corrected.save(image_path, "JPEG", quality=95)
+        print("Bepul algoritmik usul bilan tuzatildi.")
+    except Exception as e:
+        print(f"Ogohlantirish: algoritmik tuzatish ham ishlamadi: {e}")
+
+
 def gemini_color_correct(image_path):
-    """Muvaffaqiyatsiz bo'lsa, asl rasm o'zgarishsiz qoladi."""
+    """
+    Avval Gemini AI orqali tuzatishga harakat qiladi. Agar Gemini limiti
+    tugagan yoki xatolik bo'lsa, avtomatik bepul algoritmik usulga o'tadi.
+    """
     if not GEMINI_API_KEY:
-        print("Ogohlantirish: GEMINI_API_KEY topilmadi, tuzatish o'tkazib yuborildi.")
+        print("Ogohlantirish: GEMINI_API_KEY topilmadi, bepul usulga o'tildi.")
+        algorithmic_color_correct(image_path)
         return
 
     try:
@@ -112,7 +132,8 @@ def gemini_color_correct(image_path):
         data = resp.json()
 
         if resp.status_code != 200:
-            print(f"Ogohlantirish: Gemini xatolik qaytardi ({resp.status_code}): {data}")
+            print(f"Ogohlantirish: Gemini xatolik qaytardi ({resp.status_code}), bepul usulga o'tildi.")
+            algorithmic_color_correct(image_path)
             return
 
         parts = data["candidates"][0]["content"]["parts"]
@@ -125,10 +146,12 @@ def gemini_color_correct(image_path):
                 print("Gemini orqali tuzatildi.")
                 return
 
-        print("Ogohlantirish: Gemini javobida rasm topilmadi, asl rasm qoladi.")
+        print("Ogohlantirish: Gemini javobida rasm topilmadi, bepul usulga o'tildi.")
+        algorithmic_color_correct(image_path)
 
     except Exception as e:
-        print(f"Ogohlantirish: Gemini bilan ishlashda xatolik: {e}")
+        print(f"Ogohlantirish: Gemini bilan ishlashda xatolik, bepul usulga o'tildi: {e}")
+        algorithmic_color_correct(image_path)
 
 
 def send_message(chat_id, text):
@@ -136,7 +159,6 @@ def send_message(chat_id, text):
 
 
 def send_photo_for_review(chat_id, image_path, caption):
-    """Rasmni yuboradi va Telegram qaytargan message_id ni beradi."""
     url = f"{API_URL}/sendPhoto"
     with open(image_path, "rb") as photo:
         resp = requests.post(
