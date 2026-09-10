@@ -21,18 +21,19 @@ jobs:
           python-version: "3.11"
 
       - name: Kutubxonalarni o'rnatish
-        run: pip install requests Pillow
+        run: pip install requests
 
       - name: Yangi rasmlarni qabul qilish
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           ALLOWED_USER_ID: ${{ secrets.ALLOWED_USER_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python receive_images.py
 
       - name: O'zgarishlarni saqlash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add images/ updates_state.json
-          git diff --staged --quiet || git commit -m "Yangi rasm(lar) qabul qilindi"
+          git add images/ pending/ updates_state.json pending_state.json
+          git diff --staged --quiet || git commit -m "Yangi rasm(lar) qayta ishlandi"
           git push
