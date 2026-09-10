@@ -1,30 +1,35 @@
 #!/usr/bin/env python3
 """
-Foydalanuvchi botga yuborgan rasmlarni tekshirib, avtomatik rang
+Foydalanuvchi botga yuborgan rasmlarni tekshirib, Gemini AI orqali rang
 tuzatish qilib, images/ papkasiga ketma-ket raqamlab saqlaydigan skript.
-
-Ishlash tartibi:
-1. Telegram'dan getUpdates orqali yangi xabarlarni oladi
-2. Faqat ALLOWED_USER_ID dan kelgan va rasm (photo) bo'lgan xabarlarni qabul qiladi
-3. Har bir rasmni yuklab, avtomatik rang/kontrast tuzatishdan o'tkazadi
-   (mahsulotning haqiqiy rangini o'zgartirmaydi, faqat yorug'lik/oq balansni tuzatadi)
-4. images/ papkasiga navbatdagi raqam bilan saqlaydi
-5. Foydalanuvchiga darhol "qabul qilindi" deb tasdiq xabar yuboradi
 """
 
 import os
 import sys
 import json
+import base64
 import requests
-from PIL import Image, ImageOps
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 IMAGES_DIR = "images"
 UPDATES_STATE_FILE = "updates_state.json"
 
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+GEMINI_MODEL = "gemini-2.5-flash-image"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+GEMINI_PROMPT = (
+    "Apply only automatic white balance, exposure and contrast correction "
+    "to this product photo. Do not change the actual color/hue of the "
+    "jewelry item itself (gold must stay gold, silver must stay silver). "
+    "Do not add, remove, or redraw any objects or details. Keep the exact "
+    "same composition, angle and framing. Only clean up the lighting and "
+    "make the background look neutral and clean."
+)
 
 
 def load_updates_state():
@@ -63,14 +68,55 @@ def download_file(file_id, save_path):
         f.write(resp.content)
 
 
-def color_correct(image_path):
-    """Yorug'lik va kontrastni avtomatik tuzatadi (mahsulot rangini o'zgartirmaydi)."""
+def gemini_color_correct(image_path):
+    """
+    Rasmni Gemini AI orqali rang/yorug'lik tuzatishdan o'tkazadi.
+    Muvaffaqiyatsiz bo'lsa, asl rasm o'zgarishsiz qoladi.
+    """
+    if not GEMINI_API_KEY:
+        print("Ogohlantirish: GEMINI_API_KEY topilmadi, rang tuzatish o'tkazib yuborildi.")
+        return
+
     try:
-        img = Image.open(image_path).convert("RGB")
-        img = ImageOps.autocontrast(img, cutoff=1)
-        img.save(image_path, "JPEG", quality=95)
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                    {"text": GEMINI_PROMPT},
+                ]
+            }],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        }
+
+        resp = requests.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            json=payload,
+            timeout=90,
+        )
+        data = resp.json()
+
+        if resp.status_code != 200:
+            print(f"Ogohlantirish: Gemini API xatolik qaytardi ({resp.status_code}): {data}")
+            return
+
+        parts = data["candidates"][0]["content"]["parts"]
+        for part in parts:
+            if "inline_data" in part or "inlineData" in part:
+                inline = part.get("inline_data") or part.get("inlineData")
+                new_bytes = base64.b64decode(inline["data"])
+                with open(image_path, "wb") as f:
+                    f.write(new_bytes)
+                print("Gemini orqali rang tuzatildi.")
+                return
+
+        print("Ogohlantirish: Gemini javobida rasm topilmadi, asl rasm saqlanadi.")
+
     except Exception as e:
-        print(f"Ogohlantirish: rang tuzatishda muammo bo'ldi, asl rasm saqlanadi: {e}")
+        print(f"Ogohlantirish: Gemini bilan ishlashda xatolik, asl rasm saqlanadi: {e}")
 
 
 def send_message(chat_id, text):
@@ -124,9 +170,9 @@ def main():
 
         try:
             download_file(file_id, save_path)
-            color_correct(save_path)
+            gemini_color_correct(save_path)
             saved_count += 1
-            print(f"Saqlandi va rangi tuzatildi: {filename}")
+            print(f"Saqlandi: {filename}")
             send_message(message["chat"]["id"], f"✅ Rasm navbatga qo'shildi ({filename})")
         except Exception as e:
             print(f"XATOLIK rasmni saqlashda: {e}")
