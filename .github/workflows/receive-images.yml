@@ -2,7 +2,7 @@ name: Receive Images From Bot
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -21,7 +21,7 @@ jobs:
           python-version: "3.11"
 
       - name: Kutubxonalarni o'rnatish
-        run: pip install requests
+        run: pip install requests Pillow
 
       - name: Yangi rasmlarni qabul qilish
         env:
