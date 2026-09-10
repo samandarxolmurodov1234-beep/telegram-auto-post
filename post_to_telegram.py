@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """
 Telegram kanalga har kuni avtomatik rasm post qiluvchi skript (matnsiz).
-
-Ishlash tartibi:
-1. images/ papkasidagi barcha rasmlarni nomi bo'yicha alifbo tartibida saqlaydi
-2. state.json faylida "qaysi rasm navbatda" degan ma'lumot saqlanadi
-3. Har ishga tushganda navbatdagi rasmni (matnsiz) kanalga yuboradi
-4. Ro'yxat oxiriga yetganda yana boshiga qaytadi
 """
 
 import os
@@ -61,7 +55,7 @@ def send_photo(image_path):
 
 def main():
     if not BOT_TOKEN or not CHANNEL_ID:
-        print("XATOLIK: BOT_TOKEN yoki CHANNEL_ID topilmadi (Secrets tekshiring).")
+        print("XATOLIK: BOT_TOKEN yoki CHANNEL_ID topilmadi.")
         sys.exit(1)
 
     images = get_sorted_images()
