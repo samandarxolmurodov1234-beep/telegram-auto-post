@@ -23,7 +23,7 @@ jobs:
       - name: Kutubxonalarni o'rnatish
         run: pip install requests
 
-            - name: Yangi rasmlarni qabul qilish
+      - name: Yangi rasmlarni qabul qilish
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           ALLOWED_USER_ID: ${{ secrets.ALLOWED_USER_ID }}
