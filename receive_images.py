@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
 """
-Foydalanuvchi botga yuborgan rasmlarni tekshirib, Gemini AI orqali rang
-tuzatadi (agar limit tugagan bo'lsa - bepul algoritmik usulga avtomatik
-o'tadi), sizga natijani qaytarib ko'rsatadi va faqat siz "bo'ladi" deb
-javob berganingizda asosiy navbatga (images/) qo'shadi.
+Foydalanuvchi botga yuborgan rasmlarni tekshirib, OpenAI (gpt-image-1) orqali
+professional tarzda qayta ishlaydi, sizga natijani qaytarib ko'rsatadi va
+faqat siz "bo'ladi" deb javob berganingizda asosiy navbatga (images/) qo'shadi.
 
-Ishlash tartibi:
-1. Rasm keladi -> avval Gemini orqali tuzatishga harakat qilinadi;
-   agar Gemini ishlamasa (limit, xatolik) -> bepul algoritmik usulga
-   avtomatik o'tiladi -> pending/ papkasiga saqlanadi
-2. Sizga tuzatilgan rasm qaytarib yuboriladi, "bo'ladi" deb javob
-   berishingiz so'raladi
-3. Siz o'sha xabarga javob qilib "bo'ladi" (yoki "ha", "ok") desangiz ->
-   rasm images/ papkasiga ko'chiriladi, navbatga qo'shiladi
-4. Siz "yo'q" desangiz -> rasm bekor qilinadi, navbatga qo'shilmaydi
+Agar OpenAI ishlamasa (billing, limit, xatolik), rasm ASL HOLIDA
+(tuzatilmagan) saqlanadi va qaytariladi - jarayon to'xtamaydi.
 """
 
 import os
@@ -21,11 +13,10 @@ import sys
 import json
 import base64
 import requests
-from PIL import Image, ImageOps
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ALLOWED_USER_ID = os.environ.get("ALLOWED_USER_ID")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 IMAGES_DIR = "images"
 PENDING_DIR = "pending"
@@ -34,18 +25,61 @@ PENDING_STATE_FILE = "pending_state.json"
 
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-GEMINI_MODEL = "gemini-2.5-flash-image"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+OPENAI_EDIT_URL = "https://api.openai.com/v1/images/edits"
 
-GEMINI_PROMPT = (
-    "Mutlaqo toza va top-toza oq teksturali zargarlik stendida joylashgan "
-    "oltin uzukning professional mahsulot fotosurati. Stend yuzasida hech "
-    "qanday dog'lar, ruchka izlari yoki metall qisqichlar yo'q. Barcha "
-    "keraksiz dog'lar olib tashlangan, orqa fon va stend mutlaqo toza va "
-    "professional ko'rinishda. "
-    "MUHIM: uzukning o'zi - uning rangi, shakli, o'lchami, dizayni va "
-    "har qanday detali - asl rasmdagidek qoladi, hech qanday o'zgarish "
-    "kiritilmaydi. Faqat stend/fon tozalanadi va yorug'lik yaxshilanadi."
+OPENAI_PROMPT = (
+    "Create a photorealistic premium luxury jewelry advertising photograph "
+    "using the uploaded reference image. REFERENCE JEWELRY — VERY IMPORTANT: "
+    "Use the EXACT earrings and EXACT ring from the uploaded reference image. "
+    "Do NOT redesign, regenerate, simplify, reshape, replace, or invent the "
+    "jewelry. Preserve the exact: - jewelry design - shape - number of gold "
+    "spheres - proportions - size - arrangement - faceted texture - gold "
+    "color - surface details - structure - overall appearance. The earrings "
+    "and ring must remain visually identical to the uploaded reference "
+    "jewelry. Only improve the photography, lighting, environment, and "
+    "atmosphere around them. SCENE: Place the exact reference earrings and "
+    "ring elegantly on a premium white luxury jewelry display stand. A large "
+    "rectangular padded white leather display panel mounted on a "
+    "sophisticated white pedestal base. The display stand should look clean, "
+    "expensive, minimal and professionally manufactured. COMPOSITION: Keep "
+    "the same jewelry arrangement and placement as the reference image: - "
+    "two matching vertical earrings positioned symmetrically in the upper "
+    "left and upper right - matching ring positioned in the center-lower "
+    "area - maintain natural spacing and proportions. ATMOSPHERE: High-end "
+    "luxury jewelry brand advertising. Elegant premium jewelry showroom "
+    "aesthetic. Minimalistic white luxury environment. Sophisticated, clean "
+    "and expensive appearance. Soft warm ivory atmosphere mixed with pure "
+    "white tones. Subtle luxurious glow surrounding the jewelry. LIGHTING: "
+    "Professional luxury jewelry studio lighting. Large soft diffused key "
+    "light from the front. Gentle side lighting. Subtle warm golden "
+    "highlights reflecting naturally from the yellow gold. Beautiful "
+    "controlled reflections on the faceted gold surfaces. Soft realistic "
+    "contact shadows. Natural dimensionality. No harsh shadows. No black "
+    "spots. No dirty gray areas. No excessive glare. BACKGROUND: Pure white "
+    "seamless studio background. Very subtle warm-white gradient. Clean "
+    "negative space. Soft premium glow. No visible wall corners. No "
+    "horizon. No distracting objects. MATERIALS: The jewelry must look like "
+    "real polished yellow gold. Preserve the exact faceted metal texture "
+    "from the reference. Highly realistic metallic reflections. Realistic "
+    "white leather texture on the display. Natural premium material "
+    "appearance. CAMERA: Straight-on front-facing luxury product "
+    "photography. Centered composition. Eye-level camera. 50mm professional "
+    "product photography lens. Sharp focus on the jewelry. High "
+    "micro-detail. Natural realistic perspective. FINAL STYLE: "
+    "Ultra-photorealistic. High-end luxury jewelry campaign. Premium "
+    "jewelry catalog photography. Elegant. Minimal. Sophisticated. Clean. "
+    "Expensive. 8K quality. Realistic studio photography. ABSOLUTELY DO "
+    "NOT: change the earrings, change the ring, redesign the jewelry, add "
+    "or remove gold spheres, change proportions, change jewelry placement, "
+    "add gemstones, add diamonds, change yellow gold to another metal, add "
+    "extra jewelry, remove any jewelry, create different jewelry, add "
+    "people, add hands, add text, add logos, add watermark, add decorative "
+    "props, use a dark background, create black spots, create dirty "
+    "surfaces, create artificial CGI-looking jewelry. The uploaded "
+    "reference jewelry is the source of truth. The jewelry itself must "
+    "remain unchanged. Only create a more luxurious, professional "
+    "atmosphere, lighting, background and presentation around the exact "
+    "reference jewelry."
 )
 
 CONFIRM_WORDS = {"bo'ladi", "boladi", "ha", "ok", "okay", "tasdiqlayman"}
@@ -92,66 +126,53 @@ def download_file(file_id, save_path):
         f.write(resp.content)
 
 
-def algorithmic_color_correct(image_path):
-    """Bepul, algoritmik rang/kontrast tuzatish (zaxira usul)."""
-    try:
-        img = Image.open(image_path).convert("RGB")
-        corrected = ImageOps.autocontrast(img, cutoff=1)
-        corrected.save(image_path, "JPEG", quality=95)
-        print("Bepul algoritmik usul bilan tuzatildi.")
-    except Exception as e:
-        print(f"Ogohlantirish: algoritmik tuzatish ham ishlamadi: {e}")
-
-
-def gemini_color_correct(image_path):
+def ai_enhance_photo(image_path):
     """
-    Avval Gemini AI orqali tuzatishga harakat qiladi. Agar Gemini limiti
-    tugagan yoki xatolik bo'lsa, avtomatik bepul algoritmik usulga o'tadi.
+    OpenAI (gpt-image-1) orqali rasmni qayta ishlaydi. Agar ishlamasa
+    (billing, limit, xatolik), asl rasm o'zgarishsiz qoladi.
     """
-    if not GEMINI_API_KEY:
-        print("Ogohlantirish: GEMINI_API_KEY topilmadi, bepul usulga o'tildi.")
-        algorithmic_color_correct(image_path)
+    if not OPENAI_API_KEY:
+        print("Ogohlantirish: OPENAI_API_KEY topilmadi, asl rasm saqlanadi.")
         return
 
     try:
-        with open(image_path, "rb") as f:
-            image_bytes = f.read()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        with open(image_path, "rb") as img_file:
+            files = {
+                "image": (os.path.basename(image_path), img_file, "image/jpeg"),
+            }
+            data = {
+                "model": "gpt-image-1",
+                "prompt": OPENAI_PROMPT,
+                "size": "1024x1024",
+            }
+            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
-                    {"text": GEMINI_PROMPT},
-                ]
-            }],
-            "generationConfig": {"responseModalities": ["IMAGE"]},
-        }
+            resp = requests.post(
+                OPENAI_EDIT_URL,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120,
+            )
 
-        resp = requests.post(f"{GEMINI_URL}?key={GEMINI_API_KEY}", json=payload, timeout=90)
-        data = resp.json()
+        result = resp.json()
 
         if resp.status_code != 200:
-            print(f"Ogohlantirish: Gemini xatolik qaytardi ({resp.status_code}), bepul usulga o'tildi.")
-            algorithmic_color_correct(image_path)
+            print(f"Ogohlantirish: OpenAI xatolik qaytardi ({resp.status_code}): {result}")
             return
 
-        parts = data["candidates"][0]["content"]["parts"]
-        for part in parts:
-            inline = part.get("inline_data") or part.get("inlineData")
-            if inline:
-                new_bytes = base64.b64decode(inline["data"])
-                with open(image_path, "wb") as f:
-                    f.write(new_bytes)
-                print("Gemini orqali tuzatildi.")
-                return
+        b64_data = result["data"][0].get("b64_json")
+        if not b64_data:
+            print("Ogohlantirish: OpenAI javobida rasm topilmadi, asl rasm saqlanadi.")
+            return
 
-        print("Ogohlantirish: Gemini javobida rasm topilmadi, bepul usulga o'tildi.")
-        algorithmic_color_correct(image_path)
+        image_bytes = base64.b64decode(b64_data)
+        with open(image_path, "wb") as f:
+            f.write(image_bytes)
+        print("OpenAI (gpt-image-1) orqali tuzatildi.")
 
     except Exception as e:
-        print(f"Ogohlantirish: Gemini bilan ishlashda xatolik, bepul usulga o'tildi: {e}")
-        algorithmic_color_correct(image_path)
+        print(f"Ogohlantirish: OpenAI bilan ishlashda xatolik, asl rasm saqlanadi: {e}")
 
 
 def send_message(chat_id, text):
@@ -189,12 +210,12 @@ def handle_new_photo(message, pending_state):
 
     try:
         download_file(file_id, save_path)
-        gemini_color_correct(save_path)
+        ai_enhance_photo(save_path)
 
         review_msg_id = send_photo_for_review(
             chat_id,
             save_path,
-            "Rangi shunday tuzatildi. Mos bo'lsa shu xabarga javob qilib "
+            "Rasm shunday tuzatildi. Mos bo'lsa shu xabarga javob qilib "
             "\"bo'ladi\" deb yozing, mos bo'lmasa \"yo'q\" deb yozing."
         )
 
